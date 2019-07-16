@@ -11,15 +11,36 @@
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/image_encodings.h>
 
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl/PCLPointCloud2.h>
+#include <pcl_ros/point_cloud.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+
 #include <ST/CaptureSession.h>
 #include <ST/CameraFrames.h>
 
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-#define DEFAULT_FRAME_ID 	"sc_FLU"
+#define DEFAULT_FRAME_ID 	"camera_link"
 #define LOG_PERIOD_S 		10
-#define NODE_NAME 			"sc"
+#define NODE_NAME 			"camera"
+
+// I added this
+
+bool isMono(const ST::ColorFrame &visFrame)
+{
+	return visFrame.width() * visFrame.height() == visFrame.rgbSize();
+}
+
+std::string getEncoding(const ST::ColorFrame &visFrame)
+{
+	return isMono(visFrame) ? sensor_msgs::image_encodings::MONO8 : sensor_msgs::image_encodings::RGB8;
+}
+// Until here
+
 
 struct SessionDelegate : ST::CaptureSessionDelegate {
 private:
@@ -44,6 +65,8 @@ private:
 	ros::Publisher imu_pub_;
 	sensor_msgs::Imu imu_;
 
+	ros::Publisher cloud_pub_;
+
 public:
     SessionDelegate(ros::NodeHandle &nh, std::string &frame_id, ST::CaptureSessionSettings &sessionConfig)
     {
@@ -56,15 +79,16 @@ public:
 		if(sessionConfig_->structureCore.depthEnabled)
 		{
 			// queue size is 1 because we only care about latest image
-			depth_image_pub_ = it.advertise("depth/image_rect", 1);
-			depth_caminfo_pub_ = nh_->advertise<sensor_msgs::CameraInfo>("depth/camera_info", 1);
+			depth_image_pub_ = it.advertise("depth_registered/image_raw", 1);
+			depth_caminfo_pub_ = nh_->advertise<sensor_msgs::CameraInfo>("depth_registered/camera_info", 1);
+			cloud_pub_ = nh_->advertise<sensor_msgs::PointCloud2>("depth_registered/points", 1); //Defining the publisher
 		}
 
 		if(sessionConfig_->structureCore.visibleEnabled)
 		{
 			// queue size is 1 because we only care about latest image
-			vis_pub_ = it.advertise("visible/image_rect", 1);
-			vis_caminfo_pub_ = nh_->advertise<sensor_msgs::CameraInfo>("visible/camera_info", 1);
+			vis_pub_ = it.advertise("rgb/image_rect_color", 1);
+			vis_caminfo_pub_ = nh_->advertise<sensor_msgs::CameraInfo>("rgb/camera_info", 1);
 		}
 
 		if(sessionConfig_->structureCore.infraredEnabled)
@@ -198,7 +222,13 @@ public:
 			return;
 		}
 
-		cv::Mat img(visFrame.height(), visFrame.width(), CV_8UC1);
+		//cv::Mat img(visFrame.height(), visFrame.width(), CV_8UC1); I commented this lane
+		
+		// I added this
+		const std::string encoding = getEncoding(visFrame);
+		cv::Mat img(visFrame.height(), visFrame.width(), cv_bridge::getCvType(encoding), static_cast<void*>(const_cast<uint8_t*>(visFrame.rgbData())));
+		// Until here
+
 
 		const uint8_t* buf = visFrame.rgbData();
 
@@ -211,12 +241,14 @@ public:
 			}
 		}
 
+		
 		std_msgs::Header header;
 		header.frame_id = frame_id_;
 		// TODO: convert timstamp to ROS time
 		// header.stamp =  infraredFrame.timestamp();
 
-		sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, "mono8", img).toImageMsg();
+		//sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, "mono8", img).toImageMsg();
+		sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, encoding, img).toImageMsg();
 		vis_pub_.publish(msg);
 
 		sensor_msgs::CameraInfo cam_info;
@@ -232,13 +264,22 @@ public:
 		cv::Mat img(depthFrame.height(), depthFrame.width(), CV_32F);
 
 		const float* buf = depthFrame.depthInMillimeters();
+		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
 		for(int y = 0; y < depthFrame.height(); y++)
 		{
 			for(int x = 0; x < depthFrame.width(); x++)
 			{
 				std::size_t pixelOffset = (y * depthFrame.width()) + x;
-				img.at<float>(y, x) = buf[pixelOffset];
+				img.at<float>(y, x) = buf[pixelOffset] * 0.001f;
+				
+				// Point cloud in milimeters
+				pcl::PointXYZ p;
+				p.z = buf[pixelOffset] * 0.001f;
+				p.x = p.z * (y - depthFrame.intrinsics().cx) / depthFrame.intrinsics().fx ;
+				p.y = p.z * (x - depthFrame.intrinsics().cy) / depthFrame.intrinsics().fy ;
+
+				cloud->points.push_back(p);
 			}
 		}
 
@@ -253,6 +294,15 @@ public:
 		sensor_msgs::CameraInfo cam_info;
 		populateCamInfo(depthFrame.intrinsics(), header, cam_info);
 		depth_caminfo_pub_.publish(cam_info);
+
+		// Cloud parameters
+		cloud->width = cloud->points.size();
+		cloud->height = 1;
+		cloud->is_dense = false;
+		sensor_msgs::PointCloud2 output;
+		pcl::toROSMsg(*cloud, output);
+		output.header = header;
+		cloud_pub_.publish(output);
 	}
 
 	void sendIMU(double timestamp)
@@ -386,13 +436,22 @@ public:
 		scConfig.accelerometerEnabled = imu_enable_;
 		scConfig.gyroscopeEnabled = imu_enable_;
 
+		scConfig.depthFramerate = 5.f;
+		scConfig.infraredFramerate = 5.f;
+		scConfig.visibleFramerate = 5.f;
+		//scConfig.latencyReducerEnabled 
+
+
 		scConfig.depthResolution = ST::StructureCoreDepthResolution::VGA;
 		scConfig.visibleResolution = ST::StructureCoreVisibleResolution::Default;
-		scConfig.infraredMode = ST::StructureCoreInfraredMode::LeftCameraOnly;
+		scConfig.infraredMode = ST::StructureCoreInfraredMode::BothCameras;
 		scConfig.infraredResolution = ST::StructureCoreInfraredResolution::Default;
+		scConfig.depthRangeMode = ST::StructureCoreDepthRangeMode::Medium;
 
 		sessionConfig_.source = ST::CaptureSessionSourceId::StructureCore;
 		sessionConfig_.structureCore = scConfig;
+		//sessionConfig_.applyExpensiveCorrection = true; 
+
 
 		delegate_ = new SessionDelegate(nh_, frame_id, sessionConfig_);
 		captureSession_.setDelegate(delegate_);

@@ -1,5 +1,5 @@
-sc:
-  vis_enable: false
-  ir_enable: false
+camera:
+  vis_enable: true
+  ir_enable: true
   depth_enable: true
   imu_enable: false

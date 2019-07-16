@@ -9,7 +9,14 @@ find_package(catkin REQUIRED COMPONENTS
   nodelet
   cv_bridge
   image_transport
+  pcl_ros 
 )
+
+
+find_package(PCL 1.8 REQUIRED)
+
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_CXX_FLAGS "-std=c++0x -pthread -fPIC ${CMAKE_CXX_FLAGS} -D__STDC_CONSTANT_MACROS")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O1")
@@ -27,14 +34,16 @@ catkin_package(
 
 include_directories(
   include
+  ${PCL_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS})
 
 set(LINK_LIBRARIES
   ${catkin_LIBRARIES}
-  /usr/local/lib/libStructureLinux.so)
+  ${PCL_LIBRARIES}
+  /usr/lib/libStructure.so)
 
 add_executable(sc src/sc.cpp)
-target_link_libraries(sc ${LINK_LIBRARIES} StructureLinux z rt m usb-1.0)
+target_link_libraries(sc ${LINK_LIBRARIES} Structure z rt m usb-1.0)
 add_dependencies(sc ${catkin_EXPORTED_TARGETS})
 
 
