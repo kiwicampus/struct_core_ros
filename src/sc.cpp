@@ -28,8 +28,8 @@
 #define LOG_PERIOD_S 		10
 #define NODE_NAME 			"camera"
 
-// I added this
 
+// Encoding a Mono image type into a RGB image type - RGB Conversion
 bool isMono(const ST::ColorFrame &visFrame)
 {
 	return visFrame.width() * visFrame.height() == visFrame.rgbSize();
@@ -39,8 +39,6 @@ std::string getEncoding(const ST::ColorFrame &visFrame)
 {
 	return isMono(visFrame) ? sensor_msgs::image_encodings::MONO8 : sensor_msgs::image_encodings::RGB8;
 }
-// Until here
-
 
 struct SessionDelegate : ST::CaptureSessionDelegate {
 private:
@@ -79,16 +77,16 @@ public:
 		if(sessionConfig_->structureCore.depthEnabled)
 		{
 			// queue size is 1 because we only care about latest image
-			depth_image_pub_ = it.advertise("depth_registered/image_raw", 1);
-			depth_caminfo_pub_ = nh_->advertise<sensor_msgs::CameraInfo>("depth_registered/camera_info", 1);
-			cloud_pub_ = nh_->advertise<sensor_msgs::PointCloud2>("depth_registered/points", 1); //Defining the publisher
+			depth_image_pub_ = it.advertise("depth/image_rect", 1);
+			depth_caminfo_pub_ = nh_->advertise<sensor_msgs::CameraInfo>("depth/camera_info", 1);
+			cloud_pub_ = nh_->advertise<sensor_msgs::PointCloud2>("depth/points", 1); //Defining the publisher
 		}
 
 		if(sessionConfig_->structureCore.visibleEnabled)
 		{
 			// queue size is 1 because we only care about latest image
-			vis_pub_ = it.advertise("rgb/image_rect_color", 1);
-			vis_caminfo_pub_ = nh_->advertise<sensor_msgs::CameraInfo>("rgb/camera_info", 1);
+			vis_pub_ = it.advertise("visible/image_rect", 1);
+			vis_caminfo_pub_ = nh_->advertise<sensor_msgs::CameraInfo>("visible/camera_info", 1);
 		}
 
 		if(sessionConfig_->structureCore.infraredEnabled)
@@ -199,16 +197,17 @@ public:
 			}
 		}
 
+		// IR Message setup
 		std_msgs::Header header;
 		header.frame_id = frame_id_;
-		// TODO: convert timstamp to ROS time
-		// header.stamp =  infraredFrame.timestamp();
-
+		header.stamp = ros::Time::now();
 		sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, "mono8", img).toImageMsg();
 		ir_pub_.publish(msg);
 
+		// Camera_Info messages IR
 		sensor_msgs::CameraInfo cam_info;
 		populateCamInfo(infraredFrame.intrinsics(), header, cam_info);
+		cam_info.header.stamp = ros::Time::now();
 		ir_caminfo_pub_.publish(cam_info);
 	}
 
@@ -222,37 +221,23 @@ public:
 			return;
 		}
 
-		//cv::Mat img(visFrame.height(), visFrame.width(), CV_8UC1); I commented this lane
-		
-		// I added this
+
+		// Part of the RGB image 
 		const std::string encoding = getEncoding(visFrame);
 		cv::Mat img(visFrame.height(), visFrame.width(), cv_bridge::getCvType(encoding), static_cast<void*>(const_cast<uint8_t*>(visFrame.rgbData())));
-		// Until here
 
-
-		const uint8_t* buf = visFrame.rgbData();
-
-		for(int y = 0; y < visFrame.height(); y++)
-		{
-			for(int x = 0; x < visFrame.width(); x++)
-			{
-				std::size_t pixelOffset = (y * visFrame.width()) + x;
-				img.at<uchar>(y, x) = buf[pixelOffset];
-			}
-		}
-
-		
+		// RGB message setup
 		std_msgs::Header header;
 		header.frame_id = frame_id_;
-		// TODO: convert timstamp to ROS time
-		// header.stamp =  infraredFrame.timestamp();
-
-		//sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, "mono8", img).toImageMsg();
+		header.stamp = ros::Time::now();
 		sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, encoding, img).toImageMsg();
 		vis_pub_.publish(msg);
 
+		
+		// Camera_Info messages RGB
 		sensor_msgs::CameraInfo cam_info;
 		populateCamInfo(visFrame.intrinsics(), header, cam_info);
+		cam_info.header.stamp = ros::Time::now();
 		vis_caminfo_pub_.publish(cam_info);
 	}
 
@@ -288,11 +273,14 @@ public:
 		// TODO: convert timstamp to ROS time
 		// header.stamp =  infraredFrame.timestamp();
 
+		// Time stamp header.stamp (As it is an image)
+		header.stamp = ros::Time::now();
 		sensor_msgs::ImagePtr msg = cv_bridge::CvImage(header, sensor_msgs::image_encodings::TYPE_32FC1, img).toImageMsg();
 		depth_image_pub_.publish(msg);
 
 		sensor_msgs::CameraInfo cam_info;
 		populateCamInfo(depthFrame.intrinsics(), header, cam_info);
+		cam_info.header.stamp = ros::Time::now();
 		depth_caminfo_pub_.publish(cam_info);
 
 		// Cloud parameters
@@ -310,6 +298,7 @@ public:
 		// TODO: convert timstamp to ROS time
 		// header.stamp =  timestamp();
 		imu_.header.frame_id = frame_id_;
+		imu_.header.stamp = ros::Time::now();
 
 		// TODO: fuse accel and gyro
 		imu_pub_.publish(imu_);
@@ -436,7 +425,7 @@ public:
 		scConfig.accelerometerEnabled = imu_enable_;
 		scConfig.gyroscopeEnabled = imu_enable_;
 
-		scConfig.depthFramerate = 5.f;
+		scConfig.depthFramerate = 15.f;
 		scConfig.infraredFramerate = 5.f;
 		scConfig.visibleFramerate = 5.f;
 		//scConfig.latencyReducerEnabled 
