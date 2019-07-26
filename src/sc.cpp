@@ -436,6 +436,8 @@ public:
 		scConfig.infraredMode = ST::StructureCoreInfraredMode::BothCameras;
 		scConfig.infraredResolution = ST::StructureCoreInfraredResolution::Default;
 		scConfig.depthRangeMode = ST::StructureCoreDepthRangeMode::Medium;
+		scConfig.initialInfraredExposure = 0.01f;
+		scConfig.initialInfraredGain = 3.0f;
 
 		sessionConfig_.source = ST::CaptureSessionSourceId::StructureCore;
 		sessionConfig_.structureCore = scConfig;

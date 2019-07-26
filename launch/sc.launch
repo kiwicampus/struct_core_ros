@@ -8,5 +8,13 @@
 	<node pkg="tf" type="static_transform_publisher" name="link_DF2DOF" args="0 0 0 0 0 0 camera_depth_frame camera_depth_optical_frame 100"/>
 	<node pkg="tf" type="static_transform_publisher" name="link_CL2RGBF" args="0 0 0 0 0 0 camera_link camera_visual_frame 100"/>
 
+
+	<!--group ns="/camera/visible">
+	<rosparam param="disable_pub_plugins"> -'image_transport/compressedDepth' - 'image_transport/theora' </rosparam>
+	</group>
+	<group ns="/camera/depth">
+	<rosparam param="disable_pub_plugins"> -'image_transport/compressedDepth' - 'image_transport/theora' </rosparam>
+	</group-->
+
 </launch>
 
